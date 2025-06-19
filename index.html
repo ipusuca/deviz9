@@ -1,0 +1,783 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <title>Plan Electric</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/icon.png">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/pdfmake.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.10/vfs_fonts.js"></script>
+    <style>
+        body { 
+            margin: 0; 
+            font-family: Arial, sans-serif; 
+            overflow-x: hidden; 
+            -webkit-text-size-adjust: none;
+            touch-action: auto;
+        }
+        #toolbar {
+            background: #f0f0f0;
+            padding: 10px;
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 8px;
+            overflow-x: auto;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
+            touch-action: auto;
+        }
+        button {
+            padding: 12px 16px;
+            font-size: 16px;
+            cursor: pointer;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background: #fff;
+            flex: 0 0 auto;
+            min-width: 120px;
+            touch-action: auto;
+        }
+        #deviz { 
+            margin: 20px; 
+            font-size: 16px;
+        }
+        input, select {
+            margin: 5px;
+            padding: 12px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            flex: 0 0 auto;
+            min-width: 120px;
+            touch-action: auto;
+            box-sizing: border-box;
+        }
+        #canvas-container {
+            border: 1px solid #000;
+            display: block;
+            margin: 10px auto;
+            width: 90vw;
+            max-width: 800px;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            width: 100% !important;
+            height: auto !important;
+            touch-action: manipulation;
+        }
+        .labor-input { 
+            width: 100px; 
+            font-size: 16px; 
+        }
+        @media (max-width: 600px) {
+            #toolbar {
+                padding: 8px;
+                gap: 6px;
+            }
+            button, input, select {
+                min-width: 100px;
+                font-size: 14px;
+                padding: 10px;
+            }
+            #deviz {
+                font-size: 14px;
+                margin: 10px;
+            }
+            .labor-input {
+                width: 80px;
+            }
+            #canvas-container {
+                width: 95vw;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <button onclick="mode = 'drawWall'">Desenează Perete</button>
+        <button onclick="mode = 'drawDoor'">Desenează Ușă</button>
+        <button onclick="mode = 'drawWindow'">Desenează Geam</button>
+        <button onclick="mode = 'addCamera'">Adaugă Cameră Web</button>
+        <button onclick="mode = 'addLight'">Adaugă Corp de Iluminat</button>
+        <button onclick="mode = 'addPIR'">Adaugă PIR</button>
+        <button onclick="mode = 'addOutlet'">Adaugă Priză</button>
+        <button onclick="mode = 'addNetworkOutlet'">Adaugă Priză de Rețea</button>
+        <button onclick="mode = 'addSwitch'">Adaugă Întrerupător</button>
+        <button onclick="mode = 'addPanel'">Adaugă Tablou Electric</button>
+        <button onclick="undo()">Undo</button>
+        <button onclick="generateQuote()">Generează Deviz</button>
+        <button onclick="exportToPDF()">Exportă Deviz în PDF</button>
+        <label>Nume Client:</label>
+        <input type="text" id="clientName" placeholder="Introdu nume client">
+        <label>Încarcă Plan:</label>
+        <input type="file" id="planImage" accept="image/*">
+        <label>Tip Priză:</label>
+        <select id="outletType">
+            <option value="simpla">Priză Simplă</option>
+            <option value="dubla">Priză Dublă</option>
+            <option value="tripla">Priză Triplă</option>
+        </select>
+        <label>Tip Întrerupător:</label>
+        <select id="switchType">
+            <option value="simplu">Întrerupător Simplu</option>
+            <option value="dublu">Întrerupător Dublu</option>
+            <option value="capScara">Întrerupător Cap Scara</option>
+        </select>
+        <label>Manoperă:</label>
+        <select id="laborType">
+            <option value="outletSimpla">Priză Simplă</option>
+            <option value="outletDubla">Priză Dublă</option>
+            <option value="outletTripla">Priză Triplă</option>
+            <option value="networkOutlet">Priză de Rețea</option>
+            <option value="switchSimplu">Întrerupător Simplu</option>
+            <option value="switchDublu">Întrerupător Dublu</option>
+            <option value="switchCapScara">Întrerupător Cap Scara</option>
+            <option value="light">Corp de Iluminat</option>
+            <option value="pir">PIR</option>
+            <option value="camera">Cameră Web</option>
+        </select>
+        <label>Preț Manoperă (RON):</label>
+        <input type="number" id="laborPrice" value="30" class="labor-input" onchange="updateLaborPrice()">
+    </div>
+    <div id="canvas-container"></div>
+    <div id="deviz"></div>
+
+    <script>
+        let walls = [];
+        let doors = [];
+        let windows = [];
+        let outlets = [];
+        let networkOutlets = [];
+        let switches = [];
+        let lights = [];
+        let pirs = [];
+        let cameras = [];
+        let panel = null;
+        let mode = 'drawWall';
+        let startPoint = null;
+        let history = [];
+        let clientName = '';
+        let backgroundImg = null;
+        let buildingArea = 0;
+        let laborPrices = {
+            outletSimpla: 30,
+            outletDubla: 40,
+            outletTripla: 50,
+            networkOutlet: 35,
+            switchSimplu: 25,
+            switchDublu: 35,
+            switchCapScara: 45,
+            light: 50,
+            pir: 60,
+            camera: 70
+        };
+
+        function preload() {
+            let input = document.getElementById('planImage');
+            input.addEventListener('change', (e) => {
+                let file = e.target.files[0];
+                if (file) {
+                    let area = prompt('Introdu metri pătrați ai clădirii:', '100');
+                    buildingArea = parseFloat(area) || 100;
+                    let img = loadImage(URL.createObjectURL(file));
+                    backgroundImg = img;
+                    console.log('Plan loaded, area:', buildingArea);
+                }
+            });
+        }
+
+        function setup() {
+            let canvasWidth = window.innerWidth > 800 ? 800 : window.innerWidth * 0.95;
+            let canvasHeight = window.innerWidth > 800 ? 600 : canvasWidth * 0.75;
+            let canvas = createCanvas(canvasWidth, canvasHeight);
+            canvas.parent('canvas-container');
+            canvas.style('display', 'block');
+            background(255);
+            document.getElementById('clientName').addEventListener('input', (e) => {
+                clientName = e.target.value;
+            });
+            document.getElementById('laborType').addEventListener('change', updateLaborInput);
+            updateLaborInput();
+            let canvasElement = document.querySelector('canvas');
+            canvasElement.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                handleTouchStart(e);
+            }, { passive: false });
+            canvasElement.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                handleTouchEnd(e);
+            }, { passive: false });
+            window.addEventListener('resize', resizeCanvasToFit);
+            console.log('Canvas setup:', { width: canvasWidth, height: canvasHeight });
+        }
+
+        function resizeCanvasToFit() {
+            let canvasWidth = window.innerWidth > 800 ? 800 : window.innerWidth * 0.95;
+            let canvasHeight = window.innerWidth > 800 ? 600 : canvasWidth * 0.75;
+            resizeCanvas(canvasWidth, canvasHeight);
+            redraw();
+            console.log('Canvas resized:', { width: canvasWidth, height: canvasHeight });
+        }
+
+        function updateLaborInput() {
+            let laborType = document.getElementById('laborType').value;
+            document.getElementById('laborPrice').value = laborPrices[laborType];
+        }
+
+        function updateLaborPrice() {
+            let laborType = document.getElementById('laborType').value;
+            let price = parseFloat(document.getElementById('laborPrice').value) || 0;
+            laborPrices[laborType] = price;
+        }
+
+        function draw() {
+            background(255);
+            if (backgroundImg) {
+                image(backgroundImg, 0, 0, width, height);
+            }
+
+            stroke(0);
+            strokeWeight(2);
+            for (let wall of walls) {
+                line(wall.startX, wall.startY, wall.endX, wall.endY);
+            }
+
+            stroke(0, 0, 255);
+            strokeWeight(2);
+            for (let door of doors) {
+                line(door.startX, door.startY, door.endX, door.endY);
+                let angle = atan2(door.endY - door.startY, door.endX - door.startX);
+                let midX = (door.startX + door.endX) / 2;
+                let midY = (door.startY + door.endY) / 2;
+                noFill();
+                arc(midX, midY, 20, 20, angle, angle + PI / 2);
+            }
+
+            stroke(0, 128, 0);
+            strokeWeight(1);
+            for (let window of windows) {
+                line(window.startX, window.startY, window.endX, window.endY);
+                let offsetX = (window.endY - window.startY) / 10;
+                let offsetY = (window.startX - window.endX) / 10;
+                line(window.startX + offsetX, window.startY + offsetY, window.endX + offsetX, window.endY + offsetY);
+            }
+
+            fill(255, 0, 0);
+            noStroke();
+            for (let outlet of outlets) {
+                ellipse(outlet.x, outlet.y, 10, 10);
+                text(outlet.type, outlet.x + 10, outlet.y);
+            }
+
+            fill(0, 255, 255);
+            for (let networkOutlet of networkOutlets) {
+                ellipse(networkOutlet.x, networkOutlet.y, 10, 10);
+                line(networkOutlet.x - 5, networkOutlet.y, networkOutlet.x + 5, networkOutlet.y);
+                line(networkOutlet.x, networkOutlet.y - 5, networkOutlet.x, networkOutlet.y + 5);
+                text('Priză Rețea', networkOutlet.x + 10, networkOutlet.y);
+            }
+
+            fill(0, 0, 255);
+            for (let sw of switches) {
+                rect(sw.x - 5, sw.y - 5, 10, 10);
+                text(sw.type, sw.x + 10, sw.y);
+            }
+
+            fill(0, 255, 0);
+            for (let light of lights) {
+                ellipse(light.x, light.y, 10, 10);
+                text('Corp Iluminat', light.x + 10, light.y);
+            }
+
+            fill(255, 165, 0);
+            for (let pir of pirs) {
+                triangle(pir.x - 5, pir.y + 5, pir.x + 5, pir.y + 5, pir.x, pir.y - 5);
+                text('PIR', pir.x + 10, pir.y);
+            }
+
+            fill(128, 0, 128);
+            for (let camera of cameras) {
+                rect(camera.x - 5, camera.y - 5, 10, 10);
+                text('Cameră Web', camera.x + 10, camera.y);
+            }
+
+            if (panel) {
+                fill(100);
+                rect(panel.x - 10, panel.y - 15, 20, 30);
+                text('Tablou', panel.x + 10, panel.y);
+            }
+
+            if (mode === 'drawWall' && startPoint) {
+                stroke(0);
+                strokeWeight(2);
+                line(startPoint.x, startPoint.y, mouseX, mouseY);
+            } else if (mode === 'drawDoor' && startPoint) {
+                stroke(0, 0, 255);
+                strokeWeight(2);
+                line(startPoint.x, startPoint.y, mouseX, mouseY);
+            } else if (mode === 'drawWindow' && startPoint) {
+                stroke(0, 128, 0);
+                strokeWeight(1);
+                line(startPoint.x, startPoint.y, mouseX, mouseY);
+            }
+        }
+
+        function handleTouchStart(e) {
+            if (e.touches.length > 0) {
+                let canvas = document.querySelector('canvas');
+                let rect = canvas.getBoundingClientRect();
+                let scaleX = width / rect.width;
+                let scaleY = height / rect.height;
+                let x = (e.touches[0].clientX - rect.left) * scaleX;
+                let y = (e.touches[0].clientY - rect.top) * scaleY;
+                console.log('Touch started:', { x, y, mode, rect });
+                if (x >= 0 && x <= width && y >= 0 && y <= height) {
+                    if (['drawWall', 'drawDoor', 'drawWindow'].includes(mode)) {
+                        if (!startPoint) {
+                            startPoint = { x, y };
+                        } else {
+                            let targetArray = mode === 'drawWall' ? walls : mode === 'drawDoor' ? doors : windows;
+                            targetArray.push({ startX: startPoint.x, startY: startPoint.y, endX: x, endY: y });
+                            history.push({ type: mode, data: targetArray[targetArray.length - 1] });
+                            startPoint = null;
+                        }
+                    } else if (mode === 'addOutlet') {
+                        let type = document.getElementById('outletType').value;
+                        outlets.push({ x, y, type });
+                        history.push({ type: 'outlet', data: outlets[outlets.length - 1] });
+                    } else if (mode === 'addNetworkOutlet') {
+                        networkOutlets.push({ x, y });
+                        history.push({ type: 'networkOutlet', data: networkOutlets[networkOutlets.length - 1] });
+                    } else if (mode === 'addSwitch') {
+                        let type = document.getElementById('switchType').value;
+                        switches.push({ x, y, type });
+                        history.push({ type: 'switch', data: switches[switches.length - 1] });
+                    } else if (mode === 'addLight') {
+                        lights.push({ x, y });
+                        history.push({ type: 'light', data: lights[lights.length - 1] });
+                    } else if (mode === 'addPIR') {
+                        pirs.push({ x, y });
+                        history.push({ type: 'pir', data: pirs[pirs.length - 1] });
+                    } else if (mode === 'addCamera') {
+                        cameras.push({ x, y });
+                        history.push({ type: 'camera', data: cameras[cameras.length - 1] });
+                    } else if (mode === 'addPanel') {
+                        panel = { x, y };
+                        history.push({ type: 'panel', data: panel });
+                    }
+                    redraw();
+                }
+            }
+        }
+
+        function handleTouchEnd(e) {
+            console.log('Touch ended');
+            if (startPoint && ['drawWall', 'drawDoor', 'drawWindow'].includes(mode)) {
+                startPoint = null;
+                redraw();
+            }
+        }
+
+        function mousePressed() {
+            if (mouseX >= 0 && mouseX <= width && mouseY >= 0 && mouseY <= height) {
+                console.log('Mouse pressed:', { x: mouseX, y: mouseY, mode });
+                if (['drawWall', 'drawDoor', 'drawWindow'].includes(mode)) {
+                    if (!startPoint) {
+                        startPoint = { x: mouseX, y: mouseY };
+                    } else {
+                        let targetArray = mode === 'drawWall' ? walls : mode === 'drawDoor' ? doors : windows;
+                        targetArray.push({ startX: startPoint.x, startY: startPoint.y, endX: mouseX, endY: mouseY });
+                        history.push({ type: mode, data: targetArray[targetArray.length - 1] });
+                        startPoint = null;
+                    }
+                } else if (mode === 'addOutlet') {
+                    let type = document.getElementById('outletType').value;
+                    outlets.push({ x: mouseX, y: mouseY, type });
+                    history.push({ type: 'outlet', data: outlets[outlets.length - 1] });
+                } else if (mode === 'addNetworkOutlet') {
+                    networkOutlets.push({ x: mouseX, y: mouseY });
+                    history.push({ type: 'networkOutlet', data: networkOutlets[networkOutlets.length - 1] });
+                } else if (mode === 'addSwitch') {
+                    let type = document.getElementById('switchType').value;
+                    switches.push({ x: mouseX, y: mouseY, type });
+                    history.push({ type: 'switch', data: switches[switches.length - 1] });
+                } else if (mode === 'addLight') {
+                    lights.push({ x: mouseX, y: mouseY });
+                    history.push({ type: 'light', data: lights[lights.length - 1] });
+                } else if (mode === 'addPIR') {
+                    pirs.push({ x: mouseX, y: mouseY });
+                    history.push({ type: 'pir', data: pirs[pirs.length - 1] });
+                } else if (mode === 'addCamera') {
+                    cameras.push({ x: mouseX, y: mouseY });
+                    history.push({ type: 'camera', data: cameras[cameras.length - 1] });
+                } else if (mode === 'addPanel') {
+                    panel = { x: mouseX, y: mouseY };
+                    history.push({ type: 'panel', data: panel });
+                }
+                redraw();
+            }
+        }
+
+        function undo() {
+            if (history.length > 0) {
+                let lastAction = history.pop();
+                console.log('Undoing:', lastAction);
+                if (lastAction.type === 'drawWall') walls.pop();
+                else if (lastAction.type === 'drawDoor') doors.pop();
+                else if (lastAction.type === 'drawWindow') windows.pop();
+                else if (lastAction.type === 'outlet') outlets.pop();
+                else if (lastAction.type === 'networkOutlet') networkOutlets.pop();
+                else if (lastAction.type === 'switch') switches.pop();
+                else if (lastAction.type === 'light') lights.pop();
+                else if (lastAction.type === 'pir') pirs.pop();
+                else if (lastAction.type === 'camera') cameras.pop();
+                else if (lastAction.type === 'panel') panel = null;
+                redraw();
+            }
+        }
+
+        function getDistanceFromPanel(elementX, elementY) {
+            let panelX = panel ? panel.x : 0;
+            let panelY = panel ? panel.y : 0;
+            let roomHalfLength = Math.sqrt(buildingArea) / 2;
+            let canvasDiagonal = Math.sqrt(width * width + height * height);
+            let pixelDistance = Math.sqrt(Math.pow(elementX - panelX, 2) + Math.pow(elementY - panelY, 2));
+            let scaledDistance = (pixelDistance / canvasDiagonal) * roomHalfLength;
+            console.log('Distance calculated:', { elementX, elementY, panelX, panelY, scaledDistance });
+            return scaledDistance;
+        }
+
+        function calculateCables() {
+            let cables = { power2_5: 0, power1_5: 0, cat6: 0 };
+            let panelHeight = 3; // 3m de la tablou la pardoseală
+            let outletHeight = 0.5; // 50cm urcare pe perete
+            let switchHeight = 1; // 1m urcare pe perete
+            let ceilingHeight = 1; // 1m de la întrerupător la tavan
+            let cameraPirHeight = 3; // 3m urcare pentru cameră/PIR
+
+            // Prize (3x2.5mm²)
+            for (let outlet of outlets) {
+                let distance = getDistanceFromPanel(outlet.x, outlet.y);
+                cables.power2_5 += panelHeight + distance + outletHeight;
+            }
+
+            // Întrerupătoare (3x1.5mm²)
+            for (let sw of switches) {
+                let distance = getDistanceFromPanel(sw.x, sw.y);
+                cables.power1_5 += panelHeight + distance + switchHeight;
+            }
+
+            // Corpuri de iluminat (3x1.5mm², via întrerupătoare)
+            for (let light of lights) {
+                let nearestSwitch = switches.length > 0 ? switches.reduce((closest, sw) => {
+                    let dist = Math.sqrt(Math.pow(sw.x - light.x, 2) + Math.pow(sw.y - light.y, 2));
+                    return dist < closest.dist ? { x: sw.x, y: sw.y, dist } : closest;
+                }, { x: light.x, y: light.y, dist: Infinity }) : { x: light.x, y: light.y };
+                let switchDistance = getDistanceFromPanel(nearestSwitch.x, nearestSwitch.y);
+                let ceilingDistance = Math.sqrt(Math.pow(light.x - nearestSwitch.x, 2) + Math.pow(light.y - nearestSwitch.y, 2)) / Math.sqrt(width * width + height * height) * Math.sqrt(buildingArea) / 2;
+                cables.power1_5 += panelHeight + switchDistance + switchHeight + ceilingHeight + ceilingDistance;
+                console.log('Light cable:', { switchDistance, ceilingDistance, total: panelHeight + switchDistance + switchHeight + ceilingHeight + ceilingDistance });
+            }
+
+            // Camere și PIR (Cat 6)
+            for (let camera of cameras) {
+                let distance = getDistanceFromPanel(camera.x, camera.y);
+                cables.cat6 += panelHeight + distance + cameraPirHeight;
+            }
+            for (let pir of pirs) {
+                let distance = getDistanceFromPanel(pir.x, pir.y);
+                cables.cat6 += panelHeight + distance + cameraPirHeight;
+            }
+
+            // Prize de rețea (Cat 6)
+            for (let networkOutlet of networkOutlets) {
+                let distance = getDistanceFromPanel(networkOutlet.x, networkOutlet.y);
+                cables.cat6 += panelHeight + distance + outletHeight;
+            }
+
+            console.log('Cables calculated:', cables);
+            return cables;
+        }
+
+        function generateQuote() {
+            let total = 0;
+            let devizHTML = `<h2>Deviz Electric</h2><p><strong>Client:</strong> ${clientName || 'Nespecificat'}</p><p><strong>Suprafață clădire:</strong> ${buildingArea} mp</p><table border="1"><tr><th>Descriere</th><th>Cantitate</th><th>Preț Unitate (RON)</th><th>Total (RON)</th></tr>`;
+
+            let outletCounts = { simpla: 0, dubla: 0, tripla: 0 };
+            for (let outlet of outlets) outletCounts[outlet.type]++;
+            if (outletCounts.simpla > 0) {
+                let price = 50;
+                devizHTML += `<tr><td>Priză Simplă</td><td>${outletCounts.simpla}</td><td>${price}</td><td>${outletCounts.simpla * price}</td></tr>`;
+                devizHTML += `<tr><td>Manoperă Priză Simplă</td><td>${outletCounts.simpla}</td><td>${laborPrices.outletSimpla}</td><td>${outletCounts.simpla * laborPrices.outletSimpla}</td></tr>`;
+                total += outletCounts.simpla * (price + laborPrices.outletSimpla);
+            }
+            if (outletCounts.dubla > 0) {
+                let price = 70;
+                devizHTML += `<tr><td>Priză Dublă</td><td>${outletCounts.dubla}</td><td>${price}</td><td>${outletCounts.dubla * price}</td></tr>`;
+                devizHTML += `<tr><td>Manoperă Priză Dublă</td><td>${outletCounts.dubla}</td><td>${laborPrices.outletDubla}</td><td>${outletCounts.dubla * laborPrices.outletDubla}</td></tr>`;
+                total += outletCounts.dubla * (price + laborPrices.outletDubla);
+            }
+            if (outletCounts.tripla > 0) {
+                let price = 90;
+                devizHTML += `<tr><td>Priză Triplă</td><td>${outletCounts.tripla}</td><td>${price}</td><td>${outletCounts.tripla * price}</td></tr>`;
+                devizHTML += `<tr><td>Manoperă Priză Triplă</td><td>${outletCounts.tripla}</td><td>${laborPrices.outletTripla}</td><td>${outletCounts.tripla * laborPrices.outletTripla}</td></tr>`;
+                total += outletCounts.tripla * (price + laborPrices.outletTripla);
+            }
+
+            if (networkOutlets.length > 0) {
+                let price = 60;
+                devizHTML += `<tr><td>Priză de Rețea</td><td>${networkOutlets.length}</td><td>${price}</td><td>${networkOutlets.length * price}</td></tr>`;
+                devizHTML += `<tr><td>Manoperă Priză de Rețea</td><td>${networkOutlets.length}</td><td>${laborPrices.networkOutlet}</td><td>${networkOutlets.length * laborPrices.networkOutlet}</td></tr>`;
+                total += networkOutlets.length * (price + laborPrices.networkOutlet);
+            }
+
+            let switchCounts = { simplu: 0, dublu: 0, capScara: 0 };
+            for (let sw of switches) switchCounts[sw.type]++;
+            if (switchCounts.simplu > 0) {
+                let price = 40;
+                devizHTML += `<tr><td>Întrerupător Simplu</td><td>${switchCounts.simplu}</td><td>${price}</td><td>${switchCounts.simplu * price}</td></tr>`;
+                devizHTML += `<tr><td>Manoperă Întrerupător Simplu</td><td>${switchCounts.simplu}</td><td>${laborPrices.switchSimplu}</td><td>${switchCounts.simplu * laborPrices.switchSimplu}</td></tr>`;
+                total += switchCounts.simplu * (price + laborPrices.switchSimplu);
+            }
+            if (switchCounts.dublu > 0) {
+                let price = 60;
+                devizHTML += `<tr><td>Întrerupător Dublu</td><td>${switchCounts.dublu}</td><td>${price}</td><td>${switchCounts.dublu * price}</td></tr>`;
+                devizHTML += `<tr><td>Manoperă Întrerupător Dublu</td><td>${switchCounts.dublu}</td><td>${laborPrices.switchDublu}</td><td>${switchCounts.dublu * laborPrices.switchDublu}</td></tr>`;
+                total += switchCounts.dublu * (price + laborPrices.switchDublu);
+            }
+            if (switchCounts.capScara > 0) {
+                let price = 80;
+                devizHTML += `<tr><td>Întrerupător Cap Scara</td><td>${switchCounts.capScara}</td><td>${price}</td><td>${switchCounts.capScara * price}</td></tr>`;
+                devizHTML += `<tr><td>Manoperă Întrerupător Cap Scara</td><td>${switchCounts.capScara}</td><td>${laborPrices.switchCapScara}</td><td>${switchCounts.capScara * laborPrices.switchCapScara}</td></tr>`;
+                total += switchCounts.capScara * (price + laborPrices.switchCapScara);
+            }
+
+            if (lights.length > 0) {
+                let price = 100;
+                devizHTML += `<tr><td>Corp de Iluminat</td><td>${lights.length}</td><td>${price}</td><td>${lights.length * price}</td></tr>`;
+                devizHTML += `<tr><td>Manoperă Corp de Iluminat</td><td>${lights.length}</td><td>${laborPrices.light}</td><td>${lights.length * laborPrices.light}</td></tr>`;
+                total += lights.length * (price + laborPrices.light);
+            }
+
+            if (pirs.length > 0) {
+                let price = 120;
+                devizHTML += `<tr><td>Senzor PIR</td><td>${pirs.length}</td><td>${price}</td><td>${pirs.length * price}</td></tr>`;
+                devizHTML += `<tr><td>Manoperă Senzor PIR</td><td>${pirs.length}</td><td>${laborPrices.pir}</td><td>${pirs.length * laborPrices.pir}</td></tr>`;
+                total += pirs.length * (price + laborPrices.pir);
+            }
+
+            if (cameras.length > 0) {
+                let price = 150;
+                devizHTML += `<tr><td>Cameră Web</td><td>${cameras.length}</td><td>${price}</td><td>${cameras.length * price}</td></tr>`;
+                devizHTML += `<tr><td>Manoperă Cameră Web</td><td>${cameras.length}</td><td>${laborPrices.camera}</td><td>${cameras.length * laborPrices.camera}</td></tr>`;
+                total += cameras.length * (price + laborPrices.camera);
+            }
+
+            if (panel) {
+                let price = 500;
+                devizHTML += `<tr><td>Tablou Electric</td><td>1</td><td>${price}</td><td>${price}</td></tr>`;
+                total += price;
+            }
+
+            let cables = calculateCables();
+            if (cables.power2_5 > 0) {
+                let price = 5;
+                let meters = Math.ceil(cables.power2_5);
+                devizHTML += `<tr><td>Cablu 3x2.5mm² (Prize)</td><td>${meters} m</td><td>${price}</td><td>${meters * price}</td></tr>`;
+                total += meters * price;
+            }
+            if (cables.power1_5 > 0) {
+                let price = 3;
+                let meters = Math.ceil(cables.power1_5);
+                devizHTML += `<tr><td>Cablu 3x1.5mm² (Iluminat, Întrerupătoare)</td><td>${meters} m</td><td>${price}</td><td>${meters * price}</td></tr>`;
+                total += meters * price;
+            }
+            if (cables.cat6 > 0) {
+                let price = 2;
+                let meters = Math.ceil(cables.cat6);
+                devizHTML += `<tr><td>Cablu Cat 6 (Rețea, Camere, PIR)</td><td>${meters} m</td><td>${price}</td><td>${meters * price}</td></tr>`;
+                total += meters * price;
+            }
+
+            devizHTML += `</table><p><strong>Total: ${total} RON</strong></p>`;
+            document.getElementById('deviz').innerHTML = devizHTML;
+        }
+
+        function exportToPDF() {
+            const canvas = document.querySelector('canvas');
+            const canvasImage = canvas.toDataURL('image/png');
+
+            const docDefinition = {
+                content: [
+                    { text: 'Deviz Electric', style: 'header' },
+                    { text: `Client: ${clientName || 'Nespecificat'}`, style: 'subheader' },
+                    { text: `Suprafață clădire: ${buildingArea} mp`, style: 'subheader' },
+                    {
+                        table: {
+                            headerRows: 1,
+                            widths: ['*', 'auto', 'auto', 'auto'],
+                            body: [
+                                ['Descriere', 'Cantitate', 'Preț Unitate (RON)', 'Total (RON)'],
+                                ...getTableRows()
+                            ]
+                        }
+                    },
+                    { text: `Total: ${calculateTotal()} RON`, style: 'total' },
+                    { text: 'Plan Electric:', style: 'subheader', margin: [0, 20, 0, 10] },
+                    { image: canvasImage, width: 500, margin: [0, 0, 0, 10] }
+                ],
+                styles: {
+                    header: { fontSize: 18, bold: true, margin: [0, 0, 0, 10] },
+                    subheader: { fontSize: 14, margin: [0, 0, 0, 10] },
+                    total: { fontSize: 14, bold: true, margin: [0, 10, 0, 0] }
+                }
+            };
+
+            pdfMake.createPdf(docDefinition).download('deviz_electric.pdf');
+        }
+
+        function getTableRows() {
+            let rows = [];
+            let outletCounts = { simpla: 0, dubla: 0, tripla: 0 };
+            for (let outlet of outlets) outletCounts[outlet.type]++;
+            if (outletCounts.simpla > 0) {
+                rows.push(['Priză Simplă', outletCounts.simpla, 50, outletCounts.simpla * 50]);
+                rows.push(['Manoperă Priză Simplă', outletCounts.simpla, laborPrices.outletSimpla, outletCounts.simpla * laborPrices.outletSimpla]);
+            }
+            if (outletCounts.dubla > 0) {
+                rows.push(['Priză Dublă', outletCounts.dubla, 70, outletCounts.dubla * 70]);
+                rows.push(['Manoperă Priză Dublă', outletCounts.dubla, laborPrices.outletDubla, outletCounts.dubla * laborPrices.outletDubla]);
+            }
+            if (outletCounts.tripla > 0) {
+                rows.push(['Priză Triplă', outletCounts.tripla, 90, outletCounts.tripla * 90]);
+                rows.push(['Manoperă Priză Triplă', outletCounts.tripla, laborPrices.outletTripla, outletCounts.tripla * laborPrices.outletTripla]);
+            }
+
+            if (networkOutlets.length > 0) {
+                rows.push(['Priză de Rețea', networkOutlets.length, 60, networkOutlets.length * 60]);
+                rows.push(['Manoperă Priză de Rețea', networkOutlets.length, laborPrices.networkOutlet, networkOutlets.length * laborPrices.networkOutlet]);
+            }
+
+            let switchCounts = { simplu: 0, dublu: 0, capScara: 0 };
+            for (let sw of switches) switchCounts[sw.type]++;
+            if (switchCounts.simplu > 0) {
+                rows.push(['Întrerupător Simplu', switchCounts.simplu, 40, switchCounts.simplu * 40]);
+                rows.push(['Manoperă Întrerupător Simplu', switchCounts.simplu, laborPrices.switchSimplu, switchCounts.simplu * laborPrices.switchSimplu]);
+            }
+            if (switchCounts.dublu > 0) {
+                rows.push(['Întrerupător Dublu', switchCounts.dublu, 60, switchCounts.dublu * 60]);
+                rows.push(['Manoperă Întrerupător Dublu', switchCounts.dublu, laborPrices.switchDublu, switchCounts.dublu * laborPrices.switchDublu]);
+            }
+            if (switchCounts.capScara > 0) {
+                rows.push(['Întrerupător Cap Scara', switchCounts.capScara, 80, switchCounts.capScara * 80]);
+                rows.push(['Manoperă Întrerupător Cap Scara', switchCounts.capScara, laborPrices.switchCapScara, switchCounts.capScara * laborPrices.switchCapScara]);
+            }
+
+            if (lights.length > 0) {
+                rows.push(['Corp de Iluminat', lights.length, 100, lights.length * 100]);
+                rows.push(['Manoperă Corp de Iluminat', lights.length, laborPrices.light, lights.length * laborPrices.light]);
+            }
+
+            if (pirs.length > 0) {
+                rows.push(['Senzor PIR', pirs.length, 120, pirs.length * 120]);
+                rows.push(['Manoperă Senzor PIR', pirs.length, laborPrices.pir, pirs.length * laborPrices.pir]);
+            }
+
+            if (cameras.length > 0) {
+                rows.push(['Cameră Web', cameras.length, 150, cameras.length * 150]);
+                rows.push(['Manoperă Cameră Web', cameras.length, laborPrices.camera, cameras.length * laborPrices.camera]);
+            }
+
+            if (panel) {
+                rows.push(['Tablou Electric', 1, 500, 500]);
+            }
+
+            let cables = calculateCables();
+            if (cables.power2_5 > 0) {
+                let meters = Math.ceil(cables.power2_5);
+                rows.push(['Cablu 3x2.5mm² (Prize)', `${meters} m`, 5, meters * 5]);
+            }
+            if (cables.power1_5 > 0) {
+                let meters = Math.ceil(cables.power1_5);
+                rows.push(['Cablu 3x1.5mm² (Iluminat, Întrerupătoare)', `${meters} m`, 3, meters * 3]);
+            }
+            if (cables.cat6 > 0) {
+                let meters = Math.ceil(cables.cat6);
+                rows.push(['Cablu Cat 6 (Rețea, Camere, PIR)', `${meters} m`, 2, meters * 2]);
+            }
+
+            return rows;
+        }
+
+        function calculateTotal() {
+            let total = 0;
+            let outletCounts = { simpla: 0, dubla: 0, tripla: 0 };
+            for (let outlet of outlets) outletCounts[outlet.type]++;
+            total += outletCounts.simpla * (50 + laborPrices.outletSimpla) + outletCounts.dubla * (70 + laborPrices.outletDubla) + outletCounts.tripla * (90 + laborPrices.outletTripla);
+            total += networkOutlets.length * (60 + laborPrices.networkOutlet);
+            let switchCounts = { simplu: 0, dublu: 0, capScara: 0 };
+            for (let sw of switches) switchCounts[sw.type]++;
+            total += switchCounts.simplu * (40 + laborPrices.switchSimplu) + switchCounts.dublu * (60 + laborPrices.switchDublu) + switchCounts.capScara * (80 + laborPrices.switchCapScara);
+            total += lights.length * (100 + laborPrices.light);
+            total += pirs.length * (120 + laborPrices.pir);
+            total += cameras.length * (150 + laborPrices.camera);
+            if (panel) total += 500;
+            let cables = calculateCables();
+            total += Math.ceil(cables.power2_5) * 5 + Math.ceil(cables.power1_5) * 3 + Math.ceil(cables.cat6) * 2;
+            return total;
+        }
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js')
+                    .then(reg => console.log('Service Worker registered:', reg))
+                    .catch(err => console.log('Service Worker registration failed:', err));
+            });
+        }
+    </script>
+</body>
+</html>
