@@ -138,23 +138,24 @@
 </head>
 <body>
     <div id="toolbar">
-        <button onclick="mode = 'drawWall'">Desenează Perete</button>
-        <button onclick="mode = 'drawDoor'">Desenează Ușă</button>
-        <button onclick="mode = 'drawWindow'">Desenează Geam</button>
-        <button onclick="mode = 'addCamera'">Adaugă Cameră Web</button>
-        <button onclick="mode = 'addLight'">Adaugă Corp de Iluminat</button>
-        <button onclick="mode = 'addPIR'">Adaugă PIR</button>
-        <button onclick="mode = 'addOutlet'">Adaugă Priză</button>
-        <button onclick="mode = 'addNetworkOutlet'">Adaugă Priză de Rețea</button>
-        <button onclick="mode = 'addSwitch'">Adaugă Întrerupător</button>
-        <button onclick="mode = 'addPanel'">Adaugă Tablou Electric</button>
-        <button onclick="undo()">Undo</button>
-        <button onclick="generateQuote()">Generează Deviz</button>
-        <button onclick="exportToPDF()">Exportă Deviz în PDF</button>
-        <label>Nume Client:</label>
+	<label>Nume Client:</label>
         <input type="text" id="clientName" placeholder="Introdu nume client">
         <label>Încarcă Plan:</label>
         <input type="file" id="planImage" accept="image/*">
+        <button onclick="mode = 'drawWall'">Desenează Perete</button>
+        <button onclick="mode = 'drawDoor'">Desenează Ușă</button>
+        <button onclick="mode = 'drawWindow'">Desenează Geam</button>
+        <button onclick="undo()">Undo</button>
+        <button onclick="mode = 'addPanel'">Adaugă Tablou Electric</button>
+        <button onclick="mode = 'addOutlet'">Adaugă Priză</button>
+        <button onclick="mode = 'addSwitch'">Adaugă Întrerupător</button>
+        <button onclick="mode = 'addLight'">Adaugă Corp de Iluminat</button>
+        <button onclick="mode = 'addNetworkOutlet'">Adaugă Priză de Rețea</button>
+        <button onclick="mode = 'addCamera'">Adaugă Cameră Web</button><br>
+        <button onclick="mode = 'addPIR'">Adaugă PIR</button>
+        <button onclick="generateQuote()">Generează Deviz</button>
+        <button onclick="exportToPDF()">Exportă Deviz în PDF</button>
+        
         <label>Tip Priză:</label>
         <select id="outletType">
             <option value="simpla">Priză Simplă</option>
@@ -180,6 +181,7 @@
             <option value="pir">PIR</option>
             <option value="camera">Cameră Web</option>
         </select>
+
         <label>Preț Manoperă (RON):</label>
         <input type="number" id="laborPrice" value="30" class="labor-input" onchange="updateLaborPrice()">
     </div>
