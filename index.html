@@ -627,19 +627,19 @@
 
             let cables = calculateCables();
             if (cables.power2_5 > 0) {
-                let price = 5;
+                let price = 25;
                 let meters = Math.ceil(cables.power2_5);
                 devizHTML += `<tr><td>Cablu 3x2.5mm² (Prize)</td><td>${meters} m</td><td>${price}</td><td>${meters * price}</td></tr>`;
                 total += meters * price;
             }
             if (cables.power1_5 > 0) {
-                let price = 3;
+                let price = 25;
                 let meters = Math.ceil(cables.power1_5);
                 devizHTML += `<tr><td>Cablu 3x1.5mm² (Iluminat, Întrerupătoare)</td><td>${meters} m</td><td>${price}</td><td>${meters * price}</td></tr>`;
                 total += meters * price;
             }
             if (cables.cat6 > 0) {
-                let price = 2;
+                let price = 25;
                 let meters = Math.ceil(cables.cat6);
                 devizHTML += `<tr><td>Cablu Cat 6 (Rețea, Camere, PIR)</td><td>${meters} m</td><td>${price}</td><td>${meters * price}</td></tr>`;
                 total += meters * price;
