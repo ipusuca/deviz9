@@ -767,7 +767,7 @@
             total += lights.length * (100 + laborPrices.light);
             total += pirs.length * (120 + laborPrices.pir);
             total += cameras.length * (150 + laborPrices.camera);
-            if (panel) total += 500;
+            if (panel) total += 1000;
             let cables = calculateCables();
             total += Math.ceil(cables.power2_5) * 5 + Math.ceil(cables.power1_5) * 3 + Math.ceil(cables.cat6) * 2;
             return total;
